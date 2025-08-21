@@ -69,4 +69,45 @@ export default function AccountTab() {
         <label className="block text-sm font-medium">User name</label>
         <input
           type="text"
-          className="w-full max-w-xs border r
+          className="w-full max-w-xs border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary/40"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Your name"
+        />
+        <button
+          type="button"
+          onClick={logOut}
+          className="text-red-600 text-sm underline mt-1"
+        >
+          Log out
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        <label className="block text-sm font-medium">Daily goal</label>
+        <input
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={999}
+          step={1}
+          placeholder="e.g., 50"
+          className="w-full max-w-xs border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary/40"
+          value={goal}
+          onChange={(e) => setGoal(e.target.value)}
+        />
+        <p className="text-sm text-gray-600">
+          How many pushups per day do you wish to do (1-999).
+        </p>
+      </div>
+
+      <button
+        className="bg-primary hover:bg-primary/90 text-white font-semibold px-5 py-3 rounded-2xl transition disabled:opacity-60"
+        onClick={saveAll}
+        disabled={saving}
+      >
+        {saving ? 'Saving...' : 'Save'}
+      </button>
+    </div>
+  )
+}
