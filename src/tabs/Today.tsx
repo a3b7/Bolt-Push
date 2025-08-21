@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
 import { supabase, todayKey } from '../lib/supabase'
 
-export default function TodayTab({ isAuthed, onAuthClick }: { isAuthed: boolean; onAuthClick: () => void }) {
+type Props = {
+  isAuthed: boolean
+  onAuthClick: () => void
+}
+
+export default function TodayTab({ isAuthed, onAuthClick }: Props) {
   const [value, setValue] = useState<string>('0')
   const [saving, setSaving] = useState(false)
   const [goal, setGoal] = useState<number | null>(null)
@@ -20,28 +25,50 @@ export default function TodayTab({ isAuthed, onAuthClick }: { isAuthed: boolean;
       const { data: userRes } = await supabase.auth.getUser()
       if (userRes?.user) {
         const { data: prof } = await supabase
-          .from('profiles').select('daily_goal').eq('user_id', userRes.user.id).maybeSingle()
+          .from('profiles')
+          .select('daily_goal')
+          .eq('user_id', userRes.user.id)
+          .maybeSingle()
         if (prof?.daily_goal) setGoal(prof.daily_goal)
       }
     })()
   }, [isAuthed])
 
-  const onFocus = () => { if (value === '0') setValue('') }
-  const onBlur = () => { if (value === '') setValue('0') }
+  const onFocus = () => {
+    if (value === '0') setValue('')
+  }
+
+  const onBlur = () => {
+    if (value === '') setValue('0')
+  }
 
   const onSave = async () => {
     if (!isAuthed) return
     const n = Number(value)
-    if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) { alert('Please enter a whole number (0 or more).'); return }
+    if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+      alert('Please enter a whole number (0 or more).')
+      return
+    }
     setSaving(true)
     const { data: userRes } = await supabase.auth.getUser()
     const user = userRes?.user
-    if (!user) { setSaving(false); return }
-    const { error } = await supabase.from('pushup_entries').upsert({
-      user_id: user.id, entry_date: todayKey(), count: n
-    })
+    if (!user) {
+      setSaving(false)
+      return
+    }
+    // Upsert targeting the unique key (user_id, entry_date)
+    const { error } = await supabase
+      .from('pushup_entries')
+      .upsert(
+        { user_id: user.id, entry_date: todayKey(), count: n },
+        { onConflict: 'user_id,entry_date' }
+      )
+
     setSaving(false)
-    if (error) alert('Could not save today’s push-ups.')
+    if (error) {
+      console.error(error)
+      alert('Could not save today’s push-ups.')
+    }
   }
 
   return (
@@ -50,16 +77,24 @@ export default function TodayTab({ isAuthed, onAuthClick }: { isAuthed: boolean;
 
       {!isAuthed && (
         <p className="text-sm text-gray-700">
-          <button onClick={onAuthClick} className="text-primary underline font-medium">Sign up or log in</button>
-          {' '}to enter pushups on the Account screen.
+          <button onClick={onAuthClick} className="text-primary underline font-medium">
+            Sign up or log in
+          </button>{' '}
+          to enter pushups on the Account screen.
         </p>
       )}
 
       <div className="space-y-2">
         <input
-          type="number" inputMode="numeric" min={0} step={1}
+          type="number"
+          inputMode="numeric"
+          min={0}
+          step={1}
           className="w-full max-w-xs border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary/40"
-          value={value} onFocus={onFocus} onBlur={onBlur} onChange={(e) => setValue(e.target.value)}
+          value={value}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          onChange={(e) => setValue(e.target.value)}
           disabled={!isAuthed}
         />
         <p className="text-sm text-gray-600">
