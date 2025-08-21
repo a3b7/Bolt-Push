@@ -1,3 +1,4 @@
+// src/tabs/Today.tsx
 import { useEffect, useState } from 'react'
 import { supabase, todayKey } from '../lib/supabase'
 
@@ -11,31 +12,39 @@ export default function TodayTab({ isAuthed, onAuthClick }: Props) {
   const [saving, setSaving] = useState(false)
   const [goal, setGoal] = useState<number | null>(null)
 
-  // Load today's entry + goal when component mounts (and whenever auth changes)
+  // Load today's entry + goal whenever auth changes (or on mount)
   useEffect(() => {
-    if (!isAuthed) return
     ;(async () => {
-      // 👇 Avoid maybeSingle() so duplicates (if any) don’t break loading
-      const { data } = await supabase
-        .from('pushup_entries')
-        .select('count')
-        .eq('entry_date', todayKey())
-        .limit(1)
-      if (data && data.length > 0 && data[0]?.count != null) {
-        setValue(String(data[0].count))
-      } else {
+      if (!isAuthed) {
         setValue('0')
+        setGoal(null)
+        return
+      }
+      const { data: userRes } = await supabase.auth.getUser()
+      const user = userRes?.user
+      if (!user) {
+        setValue('0')
+        setGoal(null)
+        return
       }
 
-      const { data: userRes } = await supabase.auth.getUser()
-      if (userRes?.user) {
-        const { data: prof } = await supabase
-          .from('profiles')
-          .select('daily_goal')
-          .eq('user_id', userRes.user.id)
-          .maybeSingle()
-        if (prof?.daily_goal) setGoal(prof.daily_goal)
-      }
+      // ✅ Filter by BOTH user_id and entry_date
+      const { data: entry, error: entryErr } = await supabase
+        .from('pushup_entries')
+        .select('count')
+        .eq('user_id', user.id)
+        .eq('entry_date', todayKey())
+        .maybeSingle()
+
+      if (!entryErr && entry?.count != null) setValue(String(entry.count))
+      else setValue('0')
+
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('daily_goal')
+        .eq('user_id', user.id)
+        .maybeSingle()
+      setGoal(prof?.daily_goal ?? null)
     })()
   }, [isAuthed])
 
@@ -58,7 +67,7 @@ export default function TodayTab({ isAuthed, onAuthClick }: Props) {
       .from('pushup_entries')
       .upsert(
         { user_id: user.id, entry_date: todayKey(), count: n },
-        { onConflict: 'user_id,entry_date' }
+        { onConflict: 'user_id,entry_date' } // relies on the unique index you created
       )
 
     setSaving(false)
@@ -66,8 +75,7 @@ export default function TodayTab({ isAuthed, onAuthClick }: Props) {
       console.error(error)
       alert('Could not save today’s push-ups.')
     } else {
-      // 👇 Immediately reflect the saved value in the input
-      setValue(String(n))
+      setValue(String(n)) // reflect immediately
     }
   }
 
@@ -88,7 +96,9 @@ export default function TodayTab({ isAuthed, onAuthClick }: Props) {
         <input
           type="number" inputMode="numeric" min={0} step={1}
           className="w-full max-w-xs border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary/40"
-          value={value} onFocus={onFocus} onBlur={onBlur}
+          value={value}
+          onFocus={onFocus}
+          onBlur={onBlur}
           onChange={(e) => setValue(e.target.value)}
           disabled={!isAuthed}
         />
