@@ -3,22 +3,27 @@ import { supabase, dateKey } from '../lib/supabase'
 
 type Entry = { entry_date: string; count: number }
 
-export default function HistoryTab() {
+export default function HistoryTab({ isAuthed, onAuthClick }: { isAuthed: boolean; onAuthClick: () => void }) {
   const [entries, setEntries] = useState<Entry[]>([])
   const [goal, setGoal] = useState<number | null>(null)
 
   useEffect(() => {
-    (async () => {
+    if (!isAuthed) {
+      setEntries([])
+      setGoal(null)
+      return
+    }
+    ;(async () => {
       const today = new Date()
       const start = new Date(today)
-      start.setDate(today.getDate() - 99) // window = last 100 days (incl. today)
+      start.setDate(today.getDate() - 99) // last 100 days window
 
-      const { data: rows, error } = await supabase
+      const { data: rows } = await supabase
         .from('pushup_entries')
         .select('entry_date,count')
         .gte('entry_date', dateKey(start))
-        .order('entry_date', { ascending: true }) // oldest -> newest
-      if (!error) setEntries(rows ?? [])
+        .order('entry_date', { ascending: true })
+      setEntries(rows ?? [])
 
       const { data: userRes } = await supabase.auth.getUser()
       const user = userRes?.user
@@ -31,16 +36,16 @@ export default function HistoryTab() {
         if (prof?.daily_goal) setGoal(prof.daily_goal)
       }
     })()
-  }, [])
+  }, [isAuthed])
 
-  // map API rows by date string
+  // map by date
   const byDate: Record<string, number> = useMemo(() => {
     const m: Record<string, number> = {}
     for (const r of entries) m[r.entry_date] = r.count
     return m
   }, [entries])
 
-  // Build the last 100 days (oldest -> newest)
+  // Build last 100 (oldest -> newest)
   const windowDays = useMemo(() => {
     const arr: { key: string; count: number }[] = []
     const today = new Date()
@@ -53,17 +58,15 @@ export default function HistoryTab() {
     return arr
   }, [byDate])
 
-  // Find first non-zero within the window; trim leading zeros
+  // Trim leading zeros up to the first non-zero; if all zero, keep full window
   const trimmedDays = useMemo(() => {
     const firstIdx = windowDays.findIndex(d => d.count > 0)
-    if (firstIdx === -1) return windowDays // all zeros -> show full window
-    return windowDays.slice(firstIdx)      // from first non-zero to today
+    if (firstIdx === -1) return windowDays
+    return windowDays.slice(firstIdx)
   }, [windowDays])
 
-  // Show newest at top (today first)
-  const display = useMemo(() => {
-    return [...trimmedDays].reverse()
-  }, [trimmedDays])
+  // Newest at top
+  const display = useMemo(() => [...trimmedDays].reverse(), [trimmedDays])
 
   const boxClass = (n: number) => {
     if (n === 0) return 'border-red-500'
@@ -76,9 +79,17 @@ export default function HistoryTab() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-semibold mb-4">My last 100 days</h1>
+      <h1 className="text-2xl font-semibold mb-2">My last 100 days</h1>
 
-      {/* Stack as a single column (newest at top). If you prefer grid, keep grid but ensure order = newest first */}
+      {!isAuthed && (
+        <p className="mb-3 text-sm text-gray-700">
+          <button onClick={onAuthClick} className="text-primary underline font-medium">
+            Sign Up or Log In
+          </button>{' '}
+          to start entering your own push-ups.
+        </p>
+      )}
+
       <div className="flex flex-col gap-2">
         {display.map(({ key, count }) => (
           <div
@@ -92,9 +103,11 @@ export default function HistoryTab() {
         ))}
       </div>
 
-      <p className="mt-3 text-sm text-gray-600">
-        {goal ? `Goal: ${goal}/day` : 'Set a daily goal on the Account tab for color coding.'}
-      </p>
+      {isAuthed && (
+        <p className="mt-3 text-sm text-gray-600">
+          {goal ? `Goal: ${goal}/day` : 'Set a daily goal on the Account tab for color coding.'}
+        </p>
+      )}
     </div>
   )
 }
