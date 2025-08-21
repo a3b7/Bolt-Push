@@ -11,16 +11,21 @@ export default function TodayTab({ isAuthed, onAuthClick }: Props) {
   const [saving, setSaving] = useState(false)
   const [goal, setGoal] = useState<number | null>(null)
 
-  // Load today's entry + goal only if authed
+  // Load today's entry + goal when component mounts (and whenever auth changes)
   useEffect(() => {
     if (!isAuthed) return
     ;(async () => {
-      const { data: entry } = await supabase
+      // 👇 Avoid maybeSingle() so duplicates (if any) don’t break loading
+      const { data } = await supabase
         .from('pushup_entries')
         .select('count')
         .eq('entry_date', todayKey())
-        .maybeSingle()
-      if (entry?.count != null) setValue(String(entry.count))
+        .limit(1)
+      if (data && data.length > 0 && data[0]?.count != null) {
+        setValue(String(data[0].count))
+      } else {
+        setValue('0')
+      }
 
       const { data: userRes } = await supabase.auth.getUser()
       if (userRes?.user) {
@@ -34,13 +39,8 @@ export default function TodayTab({ isAuthed, onAuthClick }: Props) {
     })()
   }, [isAuthed])
 
-  const onFocus = () => {
-    if (value === '0') setValue('')
-  }
-
-  const onBlur = () => {
-    if (value === '') setValue('0')
-  }
+  const onFocus = () => { if (value === '0') setValue('') }
+  const onBlur  = () => { if (value === '') setValue('0') }
 
   const onSave = async () => {
     if (!isAuthed) return
@@ -52,11 +52,8 @@ export default function TodayTab({ isAuthed, onAuthClick }: Props) {
     setSaving(true)
     const { data: userRes } = await supabase.auth.getUser()
     const user = userRes?.user
-    if (!user) {
-      setSaving(false)
-      return
-    }
-    // Upsert targeting the unique key (user_id, entry_date)
+    if (!user) { setSaving(false); return }
+
     const { error } = await supabase
       .from('pushup_entries')
       .upsert(
@@ -68,6 +65,9 @@ export default function TodayTab({ isAuthed, onAuthClick }: Props) {
     if (error) {
       console.error(error)
       alert('Could not save today’s push-ups.')
+    } else {
+      // 👇 Immediately reflect the saved value in the input
+      setValue(String(n))
     }
   }
 
@@ -86,14 +86,9 @@ export default function TodayTab({ isAuthed, onAuthClick }: Props) {
 
       <div className="space-y-2">
         <input
-          type="number"
-          inputMode="numeric"
-          min={0}
-          step={1}
+          type="number" inputMode="numeric" min={0} step={1}
           className="w-full max-w-xs border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary/40"
-          value={value}
-          onFocus={onFocus}
-          onBlur={onBlur}
+          value={value} onFocus={onFocus} onBlur={onBlur}
           onChange={(e) => setValue(e.target.value)}
           disabled={!isAuthed}
         />
