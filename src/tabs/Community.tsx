@@ -107,40 +107,63 @@ export default function CommunityTab({
 
   // Robust copy: generate token -> compose URL -> try clipboard API -> fallback
   async function copyInviteLink() {
-    if (!activeId) return
-    if (!isAuthed) { onAuthClick(); return }
-    setCopyState('idle')
+  if (!activeId) return
+  if (!isAuthed) { onAuthClick(); return }
+
+  setCopyState('idle')
+  try {
+    // 1) Get a fresh token from the server
+    const { data, error } = await supabase.rpc('rpc_create_invite', { p_community_id: activeId })
+    if (error || !data) {
+      // Show the real reason (e.g., "Only members can invite")
+      alert(error?.message || 'Could not generate invite token')
+      setCopyState('error')
+      return
+    }
+    const token = typeof data === 'string' ? data : (data as any).token
+    const url = `${window.location.origin}?invite=${token}`
+
+    // 2) Try the modern API
     try {
-      const { data: token, error } = await supabase.rpc('rpc_create_invite', { p_community_id: activeId })
-      if (error || !token) throw new Error('No token')
-
-      const url = `${window.location.origin}?invite=${token}`
-
-      // Primary path
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(url)
-      } else {
-        // Fallback for older browsers / http
-        const ta = document.createElement('textarea')
-        ta.value = url
-        ta.style.position = 'fixed'
-        ta.style.opacity = '0'
-        document.body.appendChild(ta)
-        ta.focus()
-        ta.select()
-        const ok = document.execCommand('copy')
-        document.body.removeChild(ta)
-        if (!ok) throw new Error('execCommand failed')
-      }
-
+      await navigator.clipboard.writeText(url)
       setCopyState('copied')
       setTimeout(() => setCopyState('idle'), 2000)
-    } catch (e) {
-      console.error(e)
-      setCopyState('error')
-      setTimeout(() => setCopyState('idle'), 2500)
+      return
+    } catch (_e) {
+      // continue to fallback
     }
+
+    // 3) Fallback (older browsers / http localhost)
+    try {
+      const input = document.createElement('input')
+      input.value = url
+      input.style.position = 'fixed'
+      input.style.opacity = '0'
+      document.body.appendChild(input)
+      input.focus()
+      input.select()
+      input.setSelectionRange(0, url.length)
+      const ok = document.execCommand('copy')
+      document.body.removeChild(input)
+      if (!ok) throw new Error('execCommand failed')
+      setCopyState('copied')
+      setTimeout(() => setCopyState('idle'), 2000)
+      return
+    } catch (_e2) {
+      // 4) Last resort: show a prompt so the user can copy manually
+      const ans = window.prompt('Copy this link:', url)
+      if (ans !== null) {
+        setCopyState('copied')
+      } else {
+        setCopyState('error')
+      }
+    }
+  } catch (e) {
+    console.error(e)
+    setCopyState('error')
   }
+}
+
 
   async function createCommunity() {
     if (!isAuthed) { onAuthClick(); return }
