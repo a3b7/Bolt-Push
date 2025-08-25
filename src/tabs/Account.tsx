@@ -23,26 +23,34 @@ export default function AccountTab({ isAuthed, onAuthClick }: { isAuthed: boolea
     })()
   }, [isAuthed])
 
-  async function saveAll() {
-    if (!isAuthed) return
-    if (goal === '') { alert('Please enter a daily goal (1–999).'); return }
-    const n = Number(goal)
-    if (!Number.isInteger(n) || n < 1 || n > 999) { alert('Daily goal must be 1–999.'); return }
-    const trimmed = (name ?? '').trim()
-    if (!trimmed) { alert('Please enter a user name.'); return }
+async function saveAll() {
+  if (goal === '') { alert('Please enter a daily goal (1–999).'); return }
+  const n = Number(goal)
+  if (!Number.isInteger(n) || n < 1 || n > 999) { alert('Daily goal must be 1–999.'); return }
+  const trimmed = (name ?? '').trim()
+  if (!trimmed) { alert('Please enter a user name.'); return }
 
-    setSaving(true)
-    const { data: userRes } = await supabase.auth.getUser()
-    const user = userRes?.user
-    if (!user) { setSaving(false); return }
-    const { error } = await supabase.from('profiles').upsert({
-      user_id: user.id,
-      daily_goal: n,
-      display_name: trimmed,
-    })
-    setSaving(false)
-    if (error) alert('Could not save.')
-  }
+  setSaving(true)
+  const { data: userRes } = await supabase.auth.getUser()
+  const user = userRes?.user
+  if (!user) { setSaving(false); return }
+
+  const { error } = await supabase.from('profiles').upsert({
+    user_id: user.id,
+    daily_goal: n,
+    display_name: trimmed,
+  })
+
+  if (error) { setSaving(false); alert('Could not save.'); return }
+
+  // Claim staged CSV history into this account for the "Bolt" community
+  await supabase.rpc('rpc_claim_staged_data_for_me', { p_community_name: 'Bolt' }).catch(() => {})
+
+  setSaving(false)
+  // optional: refresh UI so History/Community reflect imported data immediately
+ window.location.reload()
+}
+
 
   async function logOut() {
     await supabase.auth.signOut()
