@@ -1,4 +1,3 @@
-// src/tabs/Community.tsx
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
@@ -21,27 +20,25 @@ export default function CommunityTab({
 }) {
   const [inviteToken, setInviteToken] = useState<string | null>(null)
 
-  // my communities (auth) or invited one (anon)
   const [communities, setCommunities] = useState<Community[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
 
-  // data for active community
   const [total, setTotal] = useState<number>(0)
   const [rows, setRows] = useState<Row[]>([])
+
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
 
-  // read ?invite=... once
+  const [copyState, setCopyState] = useState<'idle'|'copied'|'error'>('idle')
+
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('invite')
     if (t) setInviteToken(t)
   }, [])
 
-  // Load communities
   useEffect(() => {
     ;(async () => {
       if (isAuthed) {
-        // If invited and authed, join then load
         if (inviteToken) {
           await supabase.rpc('rpc_join_via_invite', { p_token: inviteToken })
         }
@@ -51,17 +48,17 @@ export default function CommunityTab({
           name: c.name,
           is_owner: !!c.is_owner,
         }))
-        // If invited, prefer that community as active
+
         const invited = await getCommunityByInvite(inviteToken)
         const startId =
           invited?.community_id ??
           (activeId && cs.find(c => c.community_id === activeId)?.community_id) ??
           cs[0]?.community_id ??
           null
+
         setCommunities(cs)
         setActiveId(startId)
       } else {
-        // non-auth invited preview
         if (inviteToken) {
           const invited = await getCommunityByInvite(inviteToken)
           if (invited) {
@@ -77,7 +74,6 @@ export default function CommunityTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthed, inviteToken])
 
-  // Load data for active community
   useEffect(() => {
     ;(async () => {
       if (!activeId) {
@@ -85,23 +81,13 @@ export default function CommunityTab({
         setRows([])
         return
       }
-      if (inviteToken && !isAuthed) {
-        // public via token
-        const { data: tot } = await supabase.rpc('rpc_community_total', { p_community_id: activeId })
-        const { data: lb } = await supabase.rpc('rpc_community_leaderboard', { p_community_id: activeId })
-        setTotal(tot ?? 0)
-        setRows((lb ?? []) as any)
-      } else {
-        // member view
-        const { data: tot } = await supabase.rpc('rpc_community_total', { p_community_id: activeId })
-        const { data: lb } = await supabase.rpc('rpc_community_leaderboard', { p_community_id: activeId })
-        setTotal(tot ?? 0)
-        setRows((lb ?? []) as any)
-      }
+      const { data: tot } = await supabase.rpc('rpc_community_total', { p_community_id: activeId })
+      const { data: lb } = await supabase.rpc('rpc_community_leaderboard', { p_community_id: activeId })
+      setTotal(tot ?? 0)
+      setRows((lb ?? []) as any)
     })()
   }, [activeId, isAuthed, inviteToken])
 
-  // helpers
   async function getCommunityByInvite(token: string | null) {
     if (!token) return null
     const { data } = await supabase.rpc('rpc_get_community_by_invite', { p_token: token })
@@ -113,21 +99,47 @@ export default function CommunityTab({
   function openCommunity(id: string) {
     const idx = communities.findIndex(c => c.community_id === id)
     if (idx <= 0) { setActiveId(id); return }
-    // move clicked one to top
     const copy = [...communities]
     const [picked] = copy.splice(idx, 1)
     setCommunities([picked, ...copy])
     setActiveId(id)
   }
 
+  // Robust copy: generate token -> compose URL -> try clipboard API -> fallback
   async function copyInviteLink() {
     if (!activeId) return
     if (!isAuthed) { onAuthClick(); return }
-    const { data: token } = await supabase.rpc('rpc_create_invite', { p_community_id: activeId })
-    if (!token) return
-    const url = `${window.location.origin}?invite=${token}`
-    await navigator.clipboard.writeText(url)
-    alert('Link copied')
+    setCopyState('idle')
+    try {
+      const { data: token, error } = await supabase.rpc('rpc_create_invite', { p_community_id: activeId })
+      if (error || !token) throw new Error('No token')
+
+      const url = `${window.location.origin}?invite=${token}`
+
+      // Primary path
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(url)
+      } else {
+        // Fallback for older browsers / http
+        const ta = document.createElement('textarea')
+        ta.value = url
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.focus()
+        ta.select()
+        const ok = document.execCommand('copy')
+        document.body.removeChild(ta)
+        if (!ok) throw new Error('execCommand failed')
+      }
+
+      setCopyState('copied')
+      setTimeout(() => setCopyState('idle'), 2000)
+    } catch (e) {
+      console.error(e)
+      setCopyState('error')
+      setTimeout(() => setCopyState('idle'), 2500)
+    }
   }
 
   async function createCommunity() {
@@ -136,14 +148,12 @@ export default function CommunityTab({
     if (!name) return
     const { data: cid } = await supabase.rpc('rpc_create_community', { p_name: name })
     if (!cid) return
-    // reload list
     const { data: list } = await supabase.rpc('rpc_my_communities')
     const cs: Community[] = (list ?? []).map((c: any) => ({
       community_id: c.community_id,
       name: c.name,
       is_owner: !!c.is_owner,
     }))
-    // put new one on top and open
     const idx = cs.findIndex(c => c.community_id === cid)
     if (idx >= 0) {
       const picked = cs[idx]
@@ -174,7 +184,6 @@ export default function CommunityTab({
     () => communities.find(c => c.community_id === activeId) || null,
     [communities, activeId]
   )
-
   const others = useMemo(
     () => communities.filter(c => c.community_id !== activeId),
     [communities, activeId]
@@ -225,39 +234,36 @@ export default function CommunityTab({
         </div>
       )}
 
-      {/* Active community header (click name to move/open) */}
+      {/* OPEN COMMUNITY (outlined as one entity) */}
       {active && (
-        <div className="space-y-3">
-          <button
-            className="text-left w-full border-2 rounded-xl p-3 bg-white"
-            onClick={() => openCommunity(active.community_id)}
-          >
-            <div className="font-semibold">{active.name}</div>
-          </button>
+        <div className="rounded-2xl border-2 border-primary/20 bg-white p-4 space-y-4">
+          {/* Name */}
+          <div className="font-semibold text-lg">{active.name}</div>
 
-          {/* 1) Invite link */}
-          <div className="bg-white border rounded-xl p-4">
-            <div className="text-sm text-gray-600 mb-1">Community invitation link</div>
-            <div className="text-xs text-gray-800 break-all border rounded-md px-3 py-2 bg-gray-50">
-              (generated on copy)
+          {/* Invitation */}
+          <div className="space-y-2">
+            <div className="text-sm text-gray-600">Community invitation link</div>
+            <div className="flex items-center gap-3">
+              <button
+                className="bg-primary hover:bg-primary/90 text-white font-semibold px-4 py-2 rounded-2xl"
+                onClick={copyInviteLink}
+                disabled={!isAuthed}
+              >
+                Copy link
+              </button>
+              {copyState === 'copied' && <span className="text-sm text-green-700">Copied!</span>}
+              {copyState === 'error' && <span className="text-sm text-red-600">Couldn’t copy</span>}
             </div>
-            <button
-              className="mt-2 bg-primary hover:bg-primary/90 text-white font-semibold px-4 py-2 rounded-2xl"
-              onClick={copyInviteLink}
-              disabled={!isAuthed}
-            >
-              Copy link
-            </button>
           </div>
 
-          {/* 2) Global total */}
-          <div className="bg-white border rounded-xl p-4">
+          {/* Global total */}
+          <div className="border rounded-xl p-4">
             <div className="text-sm text-gray-600">Global total</div>
             <div className="text-3xl font-bold">{total}</div>
           </div>
 
-          {/* 3) Leaderboard */}
-          <div className="bg-white border rounded-xl overflow-auto">
+          {/* Leaderboard */}
+          <div className="border rounded-xl overflow-auto">
             <table className="min-w-full text-sm">
               <thead className="bg-gray-50 text-gray-600">
                 <tr>
@@ -283,7 +289,7 @@ export default function CommunityTab({
             </div>
           </div>
 
-          {/* 4) Delete community (owner only) */}
+          {/* Delete (owner only) */}
           {isAuthed && active?.is_owner && (
             <button
               className="bg-red-600 hover:bg-red-700 text-white font-semibold px-4 py-2 rounded-2xl"
@@ -295,7 +301,7 @@ export default function CommunityTab({
         </div>
       )}
 
-      {/* Other communities (closed list) */}
+      {/* Closed communities under the open one */}
       {others.length > 0 && (
         <div className="space-y-2">
           {others.map(c => (
