@@ -44,7 +44,8 @@ async function saveAll() {
   if (error) { setSaving(false); alert('Could not save.'); return }
 
   // Claim staged CSV history into this account for the "Bolt" community
-  await supabase.rpc('rpc_claim_staged_data_for_me', { p_community_name: 'Bolt' }).catch(() => {})
+const { error: claimErr } = await supabase.rpc('rpc_claim_staged_data_for_me', { p_community_name: 'Bolt' })
+if (claimErr) console.warn('claim staged history failed:', claimErr.message)
 
   setSaving(false)
   // optional: refresh UI so History/Community reflect imported data immediately
