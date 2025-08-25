@@ -105,35 +105,31 @@ export default function CommunityTab({
     setActiveId(id)
   }
 
-  // Robust copy: generate token -> compose URL -> try clipboard API -> fallback
-  async function copyInviteLink() {
+async function copyInviteLink() {
   if (!activeId) return
   if (!isAuthed) { onAuthClick(); return }
 
   setCopyState('idle')
   try {
-    // 1) Get a fresh token from the server
-    const { data, error } = await supabase.rpc('rpc_create_invite', { p_community_id: activeId })
+    // ⬇️ NEW: get the fixed token for this community (creates one if missing)
+    const { data, error } = await supabase.rpc('rpc_get_or_create_invite_token', { p_community_id: activeId })
     if (error || !data) {
-      // Show the real reason (e.g., "Only members can invite")
-      alert(error?.message || 'Could not generate invite token')
+      alert(error?.message || 'Could not access invite link')
       setCopyState('error')
       return
     }
-    const token = typeof data === 'string' ? data : (data as any).token
+    const token = String(data)
     const url = `${window.location.origin}?invite=${token}`
 
-    // 2) Try the modern API
     try {
       await navigator.clipboard.writeText(url)
       setCopyState('copied')
       setTimeout(() => setCopyState('idle'), 2000)
       return
-    } catch (_e) {
-      // continue to fallback
+    } catch {
+      // fallback
     }
 
-    // 3) Fallback (older browsers / http localhost)
     try {
       const input = document.createElement('input')
       input.value = url
@@ -148,21 +144,17 @@ export default function CommunityTab({
       if (!ok) throw new Error('execCommand failed')
       setCopyState('copied')
       setTimeout(() => setCopyState('idle'), 2000)
-      return
-    } catch (_e2) {
-      // 4) Last resort: show a prompt so the user can copy manually
+    } catch {
       const ans = window.prompt('Copy this link:', url)
-      if (ans !== null) {
-        setCopyState('copied')
-      } else {
-        setCopyState('error')
-      }
+      if (ans !== null) setCopyState('copied')
+      else setCopyState('error')
     }
   } catch (e) {
     console.error(e)
     setCopyState('error')
   }
 }
+
 
 
   async function createCommunity() {
